@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Panel de Ventas</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%232a78d6'/><path d='M8 22V12m6 10V8m6 14v-7m6 7V10' stroke='white' stroke-width='3' stroke-linecap='round'/></svg>">
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="/static/vendor/chart.umd.min.js"></script>
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand"><span class="logo"></span><span id="brand-name">Mi Negocio</span></div>
+      <nav>
+        <a href="#/inicio" data-route="inicio"><i>◧</i>Inicio</a>
+        <a href="#/productos" data-route="productos"><i>▦</i>Productos</a>
+        <a href="#/ventas" data-route="ventas"><i>$</i>Ventas</a>
+        <a href="#/clientes" data-route="clientes"><i>☺</i>Clientes</a>
+        <a href="#/gastos" data-route="gastos"><i>−</i>Gastos</a>
+        <div class="nav-title">Inteligencia de mercado</div>
+        <a href="#/competencia" data-route="competencia"><i>◎</i>Precios competencia</a>
+        <a href="#/mercado" data-route="mercado"><i>⌕</i>Búsquedas y novedades</a>
+        <div class="nav-title">Sistema</div>
+        <a href="#/configuracion" data-route="configuracion"><i>⚙</i>Configuración</a>
+      </nav>
+    </aside>
+    <div class="main">
+      <header class="topbar">
+        <button class="icon-btn menu-btn" id="menu-btn" aria-label="Menú">☰</button>
+        <h1 id="page-title">Inicio</h1>
+        <div class="topbar-actions" id="page-actions"></div>
+      </header>
+      <main id="view" class="view"></main>
+    </div>
+  </div>
+  <div id="modal-root"></div>
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>
