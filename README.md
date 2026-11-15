@@ -86,3 +86,9 @@ cd backend && .venv/bin/pip install pytest && .venv/bin/python -m pytest -q
 ## API
 
 Documentación interactiva en `http://localhost:8000/docs`.
+
+## Juego DIGIZ
+
+El servidor también sirve el juego DIGIZ en **`/juegos/digiz/`** (por ejemplo `http://localhost:8000/juegos/digiz/`).
+Es público: no pide la contraseña del panel. Hay un acceso directo en el menú lateral.
+Para agregar otro juego, copia su carpeta dentro de `games/` y quedará en `/juegos/<carpeta>/`.

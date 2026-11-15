@@ -182,3 +182,11 @@ def test_basic_auth(monkeypatch, client):
     assert client.get("/api/products").status_code == 401
     assert client.get("/api/products", auth=("admin", "clave")).status_code == 200
     assert client.get("/api/health").status_code == 200
+
+
+def test_games_are_public(monkeypatch, client):
+    import app.main as main
+    monkeypatch.setattr(main, "ADMIN_PASSWORD", "clave")
+    r = client.get("/juegos/digiz/")
+    assert r.status_code == 200 and "phaser.js" in r.text
+    assert client.get("/juegos/digiz/js/nivel1.js").status_code == 200

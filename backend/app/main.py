@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 
 from . import models  # noqa: F401  (registra las tablas)
 from .config import (
-    ADMIN_PASSWORD, ADMIN_USER, FRONTEND_DIR, SCHEDULER_ENABLED, SCHEDULER_TICK_SECONDS, UPLOAD_DIR,
+    ADMIN_PASSWORD, ADMIN_USER, FRONTEND_DIR, GAMES_DIR, SCHEDULER_ENABLED, SCHEDULER_TICK_SECONDS, UPLOAD_DIR,
 )
 from .database import Base, engine
 from .routers import admin, dashboard, market, products, sales
@@ -35,7 +35,9 @@ app = FastAPI(title="Dashboard de Ventas", lifespan=lifespan)
 @app.middleware("http")
 async def basic_auth(request: Request, call_next):
     """Protege todo el dashboard si se define la variable ADMIN_PASSWORD."""
-    if not ADMIN_PASSWORD or request.url.path == "/api/health":
+    # Los juegos son públicos: cualquiera puede jugar sin la contraseña del panel.
+    path = request.url.path
+    if not ADMIN_PASSWORD or path == "/api/health" or path.startswith("/juegos/"):
         return await call_next(request)
     header = request.headers.get("authorization", "")
     if header.lower().startswith("basic "):
@@ -60,6 +62,8 @@ def health():
 
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
+if GAMES_DIR.is_dir():
+    app.mount("/juegos", StaticFiles(directory=GAMES_DIR, html=True), name="juegos")
 
 
 @app.get("/", include_in_schema=False)

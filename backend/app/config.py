@@ -5,6 +5,7 @@ ROOT_DIR = Path(__file__).resolve().parents[2]
 DATA_DIR = Path(os.getenv("DATA_DIR", ROOT_DIR / "data"))
 UPLOAD_DIR = DATA_DIR / "uploads"
 FRONTEND_DIR = ROOT_DIR / "frontend"
+GAMES_DIR = ROOT_DIR / "games"
 DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{DATA_DIR / 'negocio.db'}")
 
 # Si se define, todo el dashboard pide usuario/contraseña (HTTP Basic).
