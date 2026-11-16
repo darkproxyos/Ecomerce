@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Panel de Ventas</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%232a78d6'/><path d='M8 22V12m6 10V8m6 14v-7m6 7V10' stroke='white' stroke-width='3' stroke-linecap='round'/></svg>">
+  <meta name="theme-color" content="#2a78d6">
   <link rel="stylesheet" href="/static/styles.css">
   <script src="/static/vendor/chart.umd.min.js"></script>
 </head>
@@ -24,6 +25,7 @@
         <div class="nav-title">Sistema</div>
         <a href="#/configuracion" data-route="configuracion"><i>⚙</i>Configuración</a>
         <a href="/juegos/digiz/" target="_blank" rel="noopener"><i>▶</i>Juego DIGIZ ↗</a>
+        <a href="#" id="logout-btn" onclick="return false"><i>⎋</i>Cerrar sesión</a>
       </nav>
     </aside>
     <div class="main">
@@ -32,6 +34,7 @@
         <h1 id="page-title">Inicio</h1>
         <div class="topbar-actions" id="page-actions"></div>
       </header>
+      <div id="sys-banner" class="view" style="padding-bottom:0"></div>
       <main id="view" class="view"></main>
     </div>
   </div>

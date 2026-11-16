@@ -152,7 +152,7 @@ def export_meta_catalog(request: Request, db: Session = Depends(get_db)):
     products = (db.query(Product).options(selectinload(Product.images))
                 .filter(Product.status == "activo").all())
     for p in products:
-        imgs = [f"{base}/uploads/{i.filename}" for i in p.images]
+        imgs = [f"{base}/api/images/{i.id}" for i in p.images]
         rows.append([
             p.sku or f"P{p.id}", p.name[:150], (p.description or p.name)[:9999],
             "in stock" if p.stock > 0 else "out of stock",

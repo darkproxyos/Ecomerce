@@ -1,12 +1,10 @@
-import uuid
-from pathlib import Path
-
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi.responses import Response
 from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
-from ..config import ALLOWED_IMAGE_EXT, MAX_UPLOAD_MB, UPLOAD_DIR
+from ..config import ALLOWED_IMAGE_TYPES, MAX_UPLOAD_MB
 from ..database import get_db
 from ..models import Listing, Product, ProductImage, Sale, SaleItem
 from ..schemas import ImageOut, ListingIn, ListingOut, ProductIn, ProductOut
@@ -15,14 +13,18 @@ from ..services import mercadolibre as ml
 router = APIRouter(prefix="/api", tags=["productos"])
 
 
-def image_url(filename: str) -> str:
-    return f"/uploads/{filename}"
+def image_url(img: ProductImage) -> str:
+    # El número de versión evita que el navegador muestre una foto vieja en caché.
+    return f"/api/images/{img.id}?v={img.size}"
+
+
+def images_out(images: list[ProductImage]) -> list[ImageOut]:
+    return [ImageOut(id=i.id, filename=i.filename, position=i.position, url=image_url(i)) for i in images]
 
 
 def product_out(p: Product, units_sold: int = 0) -> ProductOut:
     out = ProductOut.model_validate(p)
-    out.images = [ImageOut(id=i.id, filename=i.filename, position=i.position, url=image_url(i.filename))
-                  for i in p.images]
+    out.images = images_out(p.images)
     out.margin = round(p.price - p.cost, 2)
     out.margin_pct = round((p.price - p.cost) / p.price * 100, 1) if p.price else 0
     out.low_stock = p.stock <= p.min_stock
@@ -116,12 +118,8 @@ def duplicate_product(product_id: int, db: Session = Depends(get_db)):
 
 @router.delete("/products/{product_id}", status_code=204)
 def delete_product(product_id: int, db: Session = Depends(get_db)):
-    p = _get(db, product_id)
-    files = [i.filename for i in p.images]
-    db.delete(p)
+    db.delete(_get(db, product_id))
     db.commit()
-    for f in files:
-        (UPLOAD_DIR / f).unlink(missing_ok=True)
 
 
 # ------------------------------------------------------------------ fotos
@@ -132,20 +130,30 @@ async def upload_images(product_id: int, files: list[UploadFile] = File(...),
     p = _get(db, product_id)
     pos = max((i.position for i in p.images), default=-1) + 1
     for f in files:
-        ext = Path(f.filename or "").suffix.lower()
-        if ext not in ALLOWED_IMAGE_EXT:
+        ctype = (f.content_type or "").lower()
+        if ctype == "image/jpg":
+            ctype = "image/jpeg"
+        if ctype not in ALLOWED_IMAGE_TYPES:
             raise HTTPException(400, f"Formato no permitido: {f.filename} (usa JPG, PNG, WEBP o GIF)")
         content = await f.read()
         if len(content) > MAX_UPLOAD_MB * 1024 * 1024:
             raise HTTPException(400, f"{f.filename} supera {MAX_UPLOAD_MB} MB")
-        name = f"{uuid.uuid4().hex}{ext}"
-        (UPLOAD_DIR / name).write_bytes(content)
-        p.images.append(ProductImage(filename=name, position=pos))
+        p.images.append(ProductImage(filename=(f.filename or "")[:255], content_type=ctype,
+                                     size=len(content), data=content, position=pos))
         pos += 1
     db.commit()
     db.refresh(p)
-    return [ImageOut(id=i.id, filename=i.filename, position=i.position, url=image_url(i.filename))
-            for i in p.images]
+    return images_out(p.images)
+
+
+@router.get("/images/{image_id}", include_in_schema=False)
+def get_image(image_id: int, db: Session = Depends(get_db)):
+    """Sirve la foto. Es pública para que Facebook/Meta pueda leerla desde el catálogo."""
+    img = db.get(ProductImage, image_id)
+    if img is None:
+        raise HTTPException(404, "Imagen no encontrada")
+    return Response(img.data, media_type=img.content_type,
+                    headers={"Cache-Control": "public, max-age=31536000, immutable"})
 
 
 @router.delete("/images/{image_id}", status_code=204)
@@ -153,10 +161,8 @@ def delete_image(image_id: int, db: Session = Depends(get_db)):
     img = db.get(ProductImage, image_id)
     if img is None:
         raise HTTPException(404, "Imagen no encontrada")
-    filename = img.filename
     db.delete(img)
     db.commit()
-    (UPLOAD_DIR / filename).unlink(missing_ok=True)
 
 
 @router.post("/images/{image_id}/cover", status_code=204)

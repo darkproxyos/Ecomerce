@@ -66,6 +66,8 @@ async function api(path, { method = 'GET', body, form } = {}) {
   const res = await fetch(path, opts);
   if (res.status === 204) return null;
   const data = await res.json().catch(() => ({}));
+  if (res.status === 401 && data.login) { showLogin(); throw new Error('Inicia sesión para continuar'); }
+  if (res.status === 503 && data.setup) { showSetup(state.status || {}); throw new Error(data.detail); }
   if (!res.ok) {
     let msg = data.detail || res.statusText;
     if (Array.isArray(msg)) msg = msg.map(e => `${(e.loc || []).slice(1).join('.')}: ${e.msg}`).join(' · ');
@@ -445,7 +447,7 @@ async function productEditor(id) {
         </form>
       </div>
       <div data-pane="fotos" class="hidden">
-        <div class="dropzone" id="dz">Arrastra fotos aquí o <b>haz clic para elegir</b><div class="small muted">JPG, PNG, WEBP · máx. 10 MB c/u · la primera es la portada</div>
+        <div class="dropzone" id="dz">Arrastra fotos aquí o <b>toca para elegir o tomar una foto</b><div class="small muted">Se optimizan automáticamente (máx. 1600 px) · la primera es la portada</div>
           <input type="file" id="file-in" accept="image/*" multiple hidden></div>
         <div class="gallery" id="gallery"></div>
       </div>
@@ -518,19 +520,29 @@ async function productEditor(id) {
   };
   const upload = async files => {
     if (!files.length) return;
-    const fd = new FormData();
-    [...files].forEach(f => fd.append('files', f));
-    $('#dz', el).classList.add('over');
-    try { images = await api(`/api/products/${id}/images`, { method: 'POST', form: fd }); drawGallery(); toast('Fotos subidas', 'ok'); window.reloadProducts?.(); }
-    catch (e) { toast(e.message, 'error'); }
-    finally { $('#dz', el).classList.remove('over'); }
+    const dzEl = $('#dz', el), label = dzEl.firstChild.textContent;
+    dzEl.classList.add('over');
+    let n = 0;
+    try {
+      // Una foto por petición y comprimida: Vercel acepta como máximo 4.5 MB por petición.
+      for (const f of files) {
+        dzEl.firstChild.textContent = `Subiendo ${++n} de ${files.length}… `;
+        const fd = new FormData();
+        fd.append('files', await compressImage(f));
+        images = await api(`/api/products/${id}/images`, { method: 'POST', form: fd });
+        drawGallery();
+      }
+      toast(files.length > 1 ? `${files.length} fotos subidas` : 'Foto subida', 'ok');
+      window.reloadProducts?.();
+    } catch (e) { toast(e.message, 'error'); }
+    finally { dzEl.classList.remove('over'); dzEl.firstChild.textContent = label; }
   };
   const dz = $('#dz', el), fin = $('#file-in', el);
   dz.addEventListener('click', () => fin.click());
-  fin.addEventListener('change', () => upload(fin.files));
+  fin.addEventListener('change', () => { const list = [...fin.files]; fin.value = ''; upload(list); });
   dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('over'); });
   dz.addEventListener('dragleave', () => dz.classList.remove('over'));
-  dz.addEventListener('drop', e => { e.preventDefault(); dz.classList.remove('over'); upload(e.dataTransfer.files); });
+  dz.addEventListener('drop', e => { e.preventDefault(); dz.classList.remove('over'); upload([...e.dataTransfer.files]); });
   drawGallery();
 
   // ---- publicaciones por canal
@@ -1086,8 +1098,98 @@ route('configuracion', 'Configuración', async (rest, qs) => {
   }
 });
 
+// ======================================================================= fotos
+async function compressImage(file, max = 1600, quality = 0.85) {
+  if (file.type === 'image/gif' || !window.createImageBitmap) return file;
+  let bmp;
+  try { bmp = await createImageBitmap(file); } catch { return file; }
+  const scale = Math.min(1, max / Math.max(bmp.width, bmp.height));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(bmp.width * scale);
+  canvas.height = Math.round(bmp.height * scale);
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#ffffff';  // fondo blanco para PNG con transparencia
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
+  const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', quality));
+  if (!blob || blob.size >= file.size && scale === 1 && file.type === 'image/jpeg') return file;
+  return new File([blob], file.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' });
+}
+
+// ======================================================================= acceso y configuración inicial
+function fullScreen(html) {
+  $('.layout').classList.add('hidden');
+  let el = $('#gate');
+  if (!el) { el = document.createElement('div'); el.id = 'gate'; el.className = 'gate'; document.body.appendChild(el); }
+  el.innerHTML = `<div class="gate-box">${html}</div>`;
+  return el;
+}
+
+function showLogin() {
+  if ($('#gate #login-form')) return;
+  const el = fullScreen(`
+    <div class="brand" style="justify-content:center;padding-bottom:6px"><span class="logo"></span><span>${esc(state.settings.business_name || 'Panel de Ventas')}</span></div>
+    <p class="muted" style="text-align:center;margin-top:0">Ingresa la contraseña del panel</p>
+    <form id="login-form" class="stack" style="gap:10px">
+      <input type="password" name="password" placeholder="Contraseña" autocomplete="current-password" required autofocus>
+      <button class="btn primary" style="justify-content:center">Entrar</button>
+      <div id="login-err" class="small" style="color:var(--bad);min-height:1.2em"></div>
+    </form>`);
+  $('#login-form', el).addEventListener('submit', async e => {
+    e.preventDefault();
+    const btn = $('button', e.target);
+    btn.disabled = true;
+    try {
+      const res = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: e.target.password.value }) });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || 'Error');
+      location.reload();
+    } catch (err) { $('#login-err', el).textContent = err.message; btn.disabled = false; }
+  });
+}
+
+function showSetup(st) {
+  const step = (ok, title, body) => `<li class="setup-step ${ok ? 'ok' : ''}"><b>${ok ? '✓' : '○'} ${title}</b><div class="small muted">${body}</div></li>`;
+  fullScreen(`
+    <h1 style="font-size:20px;margin-bottom:6px">¡Tu panel ya está en línea! 🎉</h1>
+    <p class="muted" style="margin-top:0">Falta configurarlo en Vercel (una sola vez). Después pulsa <b>Redeploy</b>.</p>
+    <ol class="setup">
+      ${step(st.password_configured, 'Contraseña del panel',
+        'Vercel → tu proyecto → <b>Settings → Environment Variables</b> → agrega <code>ADMIN_PASSWORD</code> con una contraseña larga.')}
+      ${step(st.database_persistent && st.database_ok, 'Base de datos (para no perder tus datos)',
+        'Vercel → tu proyecto → <b>Storage → Create Database → Neon (Postgres)</b> → Connect. Crea <code>DATABASE_URL</code> automáticamente.' +
+        (st.database_error ? `<br><span style="color:var(--bad)">Error: ${esc(st.database_error)}</span>` : ''))}
+      ${step(st.cron_configured, 'Revisiones automáticas de precios (opcional)',
+        'Agrega <code>CRON_SECRET</code> con cualquier texto largo. Vercel revisará los precios 1 vez al día.')}
+    </ol>
+    <p class="small muted">Después de agregar las variables: <b>Deployments → ⋯ → Redeploy</b>, y recarga esta página.</p>
+    <button class="btn primary" onclick="location.reload()">Ya lo hice, recargar</button>`);
+}
+
+function systemBanner(st) {
+  const box = $('#sys-banner');
+  if (!box) return;
+  if (!st.database_ok) {
+    box.innerHTML = `<div class="notice bad">⚠ No se puede conectar a la base de datos: ${esc(st.database_error)}</div>`;
+  } else if (!st.database_persistent) {
+    box.innerHTML = `<div class="notice warn">⚠ <b>Modo de prueba:</b> no hay base de datos conectada y lo que guardes se borrará.
+      En Vercel ve a <b>Storage → Create Database → Neon</b>, conéctala al proyecto y haz <b>Redeploy</b>.</div>`;
+  } else box.innerHTML = '';
+}
+
+$('#logout-btn')?.addEventListener('click', async () => {
+  await fetch('/api/logout', { method: 'POST' });
+  location.reload();
+});
+
 // ======================================================================= arranque
 (async function init() {
+  let st = {};
+  try { st = state.status = await (await fetch('/api/status')).json(); } catch { /* sin conexión */ }
+  if (st.auth_required && !st.password_configured) return showSetup(st);
+  if (st.auth_required && !st.logged_in) return showLogin();
+  if (!st.auth_required) $('#logout-btn')?.classList.add('hidden');
+  systemBanner(st);
   try {
     state.settings = await api('/api/settings');
     $('#brand-name').textContent = state.settings.business_name;

@@ -3,11 +3,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timedelta
+import time
+from datetime import timedelta
 
 from sqlalchemy.orm import Session
 
-from ..database import SessionLocal
+from .. import clock
+from ..config import RUN_DUE_BUDGET_SECONDS
+from ..database import SessionLocal, ensure_tables
 from ..models import MarketResult, MarketSearch, PriceSnapshot, WatchItem
 from . import mercadolibre as ml
 from . import scraper
@@ -23,7 +26,7 @@ def _ml_token(db: Session) -> str:
 
 
 def run_watch(db: Session, watch: WatchItem) -> WatchItem:
-    watch.last_checked = datetime.now()
+    watch.last_checked = clock.now()
     try:
         info = scraper.fetch_page_info(watch.url, watch.css_selector, _ml_token(db))
     except scraper.ScrapeError as exc:
@@ -47,7 +50,7 @@ def run_watch(db: Session, watch: WatchItem) -> WatchItem:
 
 
 def run_search(db: Session, search: MarketSearch) -> MarketSearch:
-    now = datetime.now()
+    now = clock.now()
     search.last_run = now
     try:
         resp = scraper.search_mercadolibre(search.query, search.site, _ml_token(db))
@@ -79,21 +82,37 @@ def run_search(db: Session, search: MarketSearch) -> MarketSearch:
     return search
 
 
-def run_due(db: Session) -> dict:
-    now = datetime.now()
-    done = {"watches": 0, "searches": 0}
+def run_due(db: Session, budget_seconds: float | None = None) -> dict:
+    """Revisa lo que ya toca revisar. Se detiene al agotar el tiempo (límite de Vercel);
+    lo que falte se revisa en la siguiente ejecución, empezando por lo más atrasado."""
+    budget = RUN_DUE_BUDGET_SECONDS if budget_seconds is None else budget_seconds
+    start = time.monotonic()
+    now = clock.now()
+    done = {"watches": 0, "searches": 0, "pending": 0}
+
+    due: list = []
     for w in db.query(WatchItem).filter(WatchItem.active.is_(True)).all():
         if w.last_checked is None or w.last_checked + timedelta(hours=w.interval_hours) <= now:
-            run_watch(db, w)
-            done["watches"] += 1
+            due.append((w.last_checked or w.created_at, "watches", w))
     for s in db.query(MarketSearch).filter(MarketSearch.active.is_(True)).all():
         if s.last_run is None or s.last_run + timedelta(hours=s.interval_hours) <= now:
-            run_search(db, s)
-            done["searches"] += 1
+            due.append((s.last_run or s.created_at, "searches", s))
+    due.sort(key=lambda x: x[0])
+
+    for _, kind, obj in due:
+        if time.monotonic() - start > budget:
+            done["pending"] += 1
+            continue
+        if kind == "watches":
+            run_watch(db, obj)
+        else:
+            run_search(db, obj)
+        done[kind] += 1
     return done
 
 
 def _run_due_job() -> dict:
+    ensure_tables()
     db = SessionLocal()
     try:
         return run_due(db)

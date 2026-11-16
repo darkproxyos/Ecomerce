@@ -1,0 +1,8 @@
+# Dependencias que instala Vercel para la función Python (api/index.py).
+fastapi>=0.115
+sqlalchemy>=2.0
+psycopg[binary]>=3.2
+httpx>=0.27
+beautifulsoup4>=4.12
+python-multipart>=0.0.9
+tzdata>=2024.1

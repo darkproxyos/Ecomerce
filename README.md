@@ -8,20 +8,31 @@ ventas por canal, clientes, gastos y utilidad real, más **inteligencia de merca
 - **Frontend:** HTML/CSS/JS sin compilación (Chart.js incluido localmente)
 - Interfaz en español, modo claro/oscuro automático y adaptada a celular.
 
-## Arranque rápido
+## Desplegar en Vercel (recomendado)
+
+1. En Vercel: **Add New → Project → Import** este repositorio → **Deploy** (no cambies nada; `vercel.json` ya trae la configuración).
+2. Abre la URL: verás una pantalla que te guía con lo que falta. Una sola vez:
+   - **Settings → Environment Variables**:
+     - `ADMIN_PASSWORD` → la contraseña para entrar al panel (**obligatoria**).
+     - `CRON_SECRET` → cualquier texto largo (activa la revisión automática de precios, 1 vez al día).
+     - `APP_TIMEZONE` → opcional, por defecto `America/Mexico_City`.
+   - **Storage → Create Database → Neon (Postgres) → Connect** al proyecto. Crea `DATABASE_URL` sola.
+     (También sirve Supabase o cualquier PostgreSQL: pon su URL en `DATABASE_URL`.)
+3. **Deployments → ⋯ → Redeploy**. Listo: entra con tu contraseña.
+
+Cómo funciona en Vercel:
+- `public/` (panel y juego) lo sirve la CDN de Vercel; la API es una función Python (`api/index.py` → `backend/app`).
+- Todo se guarda en PostgreSQL, **también las fotos** (Vercel no tiene disco permanente). El navegador las reduce a 1600 px antes de subirlas.
+- Sin base de datos el panel funciona en *modo de prueba* y avisa que los datos se borrarán.
+- Las revisiones automáticas corren con **Vercel Cron** (`/api/cron`). En el plan gratuito, 1 vez al día; también puedes pulsar “Revisar pendientes” cuando quieras. Cada ejecución dura máx. ~50 s; lo que falte se revisa en la siguiente.
+- Para Mercado Libre usa como Redirect URI: `https://TU-PROYECTO.vercel.app/api/ml/callback`.
+
+## Correrlo en tu computadora (opcional)
 
 ```bash
-./run.sh                      # crea el entorno, instala dependencias y arranca
-# abre http://localhost:8000
+./run.sh                      # abre http://localhost:8000 (usa SQLite en data/)
+cd backend && .venv/bin/python -m app.seed   # datos de ejemplo
 ```
-
-Para cargar datos de ejemplo (8 productos y ~3 meses de ventas) y ver el panel lleno:
-
-```bash
-cd backend && .venv/bin/python -m app.seed
-```
-
-Los datos quedan en `data/` (`negocio.db` y `uploads/` con las fotos). **Respalda esa carpeta.**
 
 ## Qué incluye
 
@@ -59,18 +70,12 @@ Meta **no ofrece una API pública** para publicar en Marketplace como particular
 - **Catálogo Meta (CSV)** en Configuración, en el formato de Commerce Manager, para tiendas en Facebook/Instagram.
 - Las ventas de Marketplace se registran manualmente en *Ventas* (canal “Marketplace”).
 
-## Seguridad / publicarlo en internet
+## Seguridad
 
-Si el panel va a estar accesible fuera de tu computadora, define una contraseña:
-
-```bash
-ADMIN_PASSWORD='una-clave-larga' ADMIN_USER=admin HOST=0.0.0.0 ./run.sh
-```
-
-y ponlo detrás de HTTPS (Caddy, Nginx, Cloudflare Tunnel…).
-
-Variables disponibles: `ADMIN_PASSWORD`, `ADMIN_USER`, `DATA_DIR`, `DATABASE_URL`,
-`SCHEDULER_ENABLED` (1/0), `SCHEDULER_TICK_SECONDS`, `HOST`, `PORT`.
+- En Vercel el panel **exige** `ADMIN_PASSWORD`; sin ella la API no muestra datos.
+- La sesión dura 30 días (cookie segura). “Cerrar sesión” está en el menú.
+- Son públicos sin contraseña: el juego (`/juegos/...`) y las fotos de productos (las necesita el catálogo de Meta).
+- Variables: `ADMIN_PASSWORD`, `SESSION_SECRET` (opcional), `DATABASE_URL`, `CRON_SECRET`, `APP_TIMEZONE`.
 
 ## Scraping responsable
 
@@ -80,15 +85,16 @@ y no vigiles cientos de URLs del mismo sitio. Algunas tiendas bloquean bots: en 
 ## Pruebas
 
 ```bash
-cd backend && .venv/bin/pip install pytest && .venv/bin/python -m pytest -q
+cd backend && pip install -r requirements-dev.txt && python -m pytest -q
+# contra PostgreSQL: TEST_DATABASE_URL=postgresql://usuario@host/db python -m pytest -q
 ```
 
 ## API
 
-Documentación interactiva en `http://localhost:8000/docs`.
+Documentación interactiva en `/docs` (solo en tu computadora; en Vercel las rutas fuera de `/api` son del sitio estático).
 
 ## Juego DIGIZ
 
-El servidor también sirve el juego DIGIZ en **`/juegos/digiz/`** (por ejemplo `http://localhost:8000/juegos/digiz/`).
+El juego DIGIZ está en **`/juegos/digiz/`** (por ejemplo `https://TU-PROYECTO.vercel.app/juegos/digiz/`).
 Es público: no pide la contraseña del panel. Hay un acceso directo en el menú lateral.
-Para agregar otro juego, copia su carpeta dentro de `games/` y quedará en `/juegos/<carpeta>/`.
+Para agregar otro juego, copia su carpeta dentro de `public/juegos/` y quedará en `/juegos/<carpeta>/`.

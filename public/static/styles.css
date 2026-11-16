@@ -241,3 +241,14 @@ code { background: var(--surface-2); padding: 1px 5px; border-radius: 4px; font-
 .spin { display: inline-block; width: 14px; height: 14px; border: 2px solid currentColor; border-right-color: transparent;
   border-radius: 50%; animation: spin .7s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---------- acceso / configuración inicial */
+.gate { min-height: 100vh; display: grid; place-items: center; padding: 24px 16px; }
+.gate-box { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 28px;
+  width: 100%; max-width: 520px; box-shadow: var(--shadow); }
+.setup { padding-left: 0; list-style: none; display: flex; flex-direction: column; gap: 12px; }
+.setup-step { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+.setup-step.ok { background: var(--good-bg); }
+.setup-step.ok b { color: var(--good); }
+#sys-banner:empty { display: none; }
+#sys-banner .notice { margin-bottom: 0; }

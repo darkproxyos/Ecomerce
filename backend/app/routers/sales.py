@@ -5,6 +5,7 @@ from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
+from .. import clock
 from ..database import get_db
 from ..models import Customer, Expense, Product, Sale, SaleItem
 from ..schemas import (
@@ -45,7 +46,7 @@ def _fill_sale(db: Session, sale: Sale, data: SaleIn) -> None:
     else:
         sale.customer_id = None
 
-    sale.date = data.date or date.today()
+    sale.date = data.date or clock.today()
     sale.channel = data.channel
     sale.status = data.status
     sale.external_id = (data.external_id or "").strip() or None
@@ -228,7 +229,7 @@ def list_expenses(date_from: date | None = None, date_to: date | None = None,
 @router.post("/expenses", response_model=ExpenseOut, status_code=201)
 def create_expense(data: ExpenseIn, db: Session = Depends(get_db)):
     values = data.model_dump()
-    values["date"] = values["date"] or date.today()
+    values["date"] = values["date"] or clock.today()
     e = Expense(**values)
     db.add(e)
     db.commit()

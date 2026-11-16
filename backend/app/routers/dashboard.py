@@ -1,9 +1,10 @@
 from collections import defaultdict
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session, selectinload
 
+from .. import clock
 from ..database import get_db
 from ..models import CHANNELS, Expense, MarketResult, MarketSearch, Product, Sale, WatchItem
 from ..services import settings as cfg
@@ -39,7 +40,7 @@ def _load(db: Session, start: date, end: date):
 @router.get("/dashboard")
 def dashboard(days: int = 30, db: Session = Depends(get_db)):
     days = max(1, min(days, 730))
-    today = date.today()
+    today = clock.today()
     start = today - timedelta(days=days - 1)
     prev_end = start - timedelta(days=1)
     prev_start = prev_end - timedelta(days=days - 1)
@@ -111,7 +112,7 @@ def dashboard(days: int = 30, db: Session = Depends(get_db)):
             alerts.append({"type": "changed", "watch_id": w.id, "name": w.name or w.last_title,
                            "competitor_price": w.last_price, "prev_price": w.prev_price, "url": w.url})
 
-    since = datetime.now() - timedelta(hours=48)
+    since = clock.now() - timedelta(hours=48)
     new_market = [r for r in db.query(MarketResult).join(MarketSearch)
                   .filter(MarketResult.first_seen >= since).all()
                   if r.first_seen > r.search.created_at + timedelta(minutes=5)]

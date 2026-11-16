@@ -1,0 +1,5 @@
+data/
+backend/tests/
+backend/.venv/
+**/__pycache__/
+run.sh

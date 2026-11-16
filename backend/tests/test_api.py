@@ -28,8 +28,12 @@ def test_image_upload(client):
     p = make_product(client)
     files = [("files", ("a.png", b"\x89PNG fake", "image/png")), ("files", ("b.jpg", b"jpg", "image/jpeg"))]
     imgs = client.post(f"/api/products/{p['id']}/images", files=files).json()
-    assert len(imgs) == 2 and imgs[0]["url"].startswith("/uploads/")
-    assert client.get(imgs[0]["url"]).status_code == 200
+    assert len(imgs) == 2 and imgs[0]["url"].startswith("/api/images/")
+    r = client.get(imgs[0]["url"])
+    assert r.status_code == 200 and r.content == b"\x89PNG fake" and r.headers["content-type"] == "image/png"
+    assert "immutable" in r.headers["cache-control"]
+    # el listado no debe incluir los bytes de las fotos
+    assert "data" not in client.get("/api/products").json()[0]["images"][0]
     client.post(f"/api/images/{imgs[1]['id']}/cover")
     again = client.get(f"/api/products/{p['id']}").json()["images"]
     assert again[0]["id"] == imgs[1]["id"]
@@ -143,7 +147,7 @@ def test_exports_and_settings(client):
     p = make_product(client)
     client.post(f"/api/products/{p['id']}/images", files=[("files", ("a.png", b"x", "image/png"))])
     r = client.get("/api/export/meta-catalog.csv")
-    assert r.status_code == 200 and "A1" in r.text and "/uploads/" in r.text and "in stock" in r.text
+    assert r.status_code == 200 and "A1" in r.text and "/api/images/" in r.text and "in stock" in r.text
     assert "Audífonos" in client.get("/api/export/products.csv").text
     client.put("/api/settings", json={"ml_client_secret": "secreto", "business_name": "Tienda"})
     s = client.get("/api/settings").json()
@@ -176,17 +180,90 @@ def test_ml_order_import(client):
     assert client.get(f"/api/products/{p['id']}").json()["stock"] == 10
 
 
-def test_basic_auth(monkeypatch, client):
+def test_login_required(monkeypatch, client):
     import app.main as main
     monkeypatch.setattr(main, "ADMIN_PASSWORD", "clave")
+    monkeypatch.setattr(main, "AUTH_REQUIRED", True)
     assert client.get("/api/products").status_code == 401
-    assert client.get("/api/products", auth=("admin", "clave")).status_code == 200
+    assert client.get("/api/status").json()["logged_in"] is False
+    assert client.post("/api/login", json={"password": "mala"}).status_code == 401
+    assert client.post("/api/login", json={"password": "clave"}).status_code == 200
+    assert client.get("/api/products").status_code == 200
+    assert client.get("/api/status").json()["logged_in"] is True
+    client.post("/api/logout")
+    assert client.get("/api/products").status_code == 401
+    # token alterado
+    client.cookies.set(main.COOKIE, "9999999999.firmafalsa")
+    assert client.get("/api/products").status_code == 401
     assert client.get("/api/health").status_code == 200
 
 
-def test_games_are_public(monkeypatch, client):
+def test_vercel_without_password_blocks_data(monkeypatch, client):
+    import app.main as main
+    monkeypatch.setattr(main, "ADMIN_PASSWORD", "")
+    monkeypatch.setattr(main, "AUTH_REQUIRED", True)
+    r = client.get("/api/products")
+    assert r.status_code == 503 and r.json()["setup"] is True
+    st = client.get("/api/status").json()
+    assert st["password_configured"] is False and st["database_ok"] is True
+
+
+def test_images_public_when_logged_out(monkeypatch, client):
+    p = make_product(client)
+    img = client.post(f"/api/products/{p['id']}/images",
+                      files=[("files", ("a.png", b"x", "image/png"))]).json()[0]
     import app.main as main
     monkeypatch.setattr(main, "ADMIN_PASSWORD", "clave")
+    monkeypatch.setattr(main, "AUTH_REQUIRED", True)
+    assert client.get(img["url"]).status_code == 200
+    assert client.delete(f"/api/images/{img['id']}").status_code == 401
+
+
+def test_cron(monkeypatch, client):
+    import app.main as main
+    monkeypatch.setattr(main, "CRON_SECRET", "s3cret")
+    calls = []
+    monkeypatch.setattr(main.market_service, "run_due", lambda db: calls.append(1) or {"watches": 0})
+    assert client.get("/api/cron").status_code == 401
+    assert client.get("/api/cron", headers={"Authorization": "Bearer s3cret"}).status_code == 200
+    assert calls == [1]
+
+
+def test_run_due_respects_time_budget(client, monkeypatch):
+    from app.database import SessionLocal
+    from app.services import market
+    for i in range(3):
+        client.post("/api/watches?check_now=false", json={"url": f"https://t.com/{i}"})
+    seen = []
+    monkeypatch.setattr(market, "run_watch", lambda db, w: seen.append(w.id))
+    db = SessionLocal()
+    assert market.run_due(db, budget_seconds=-1) == {"watches": 0, "searches": 0, "pending": 3}
+    assert market.run_due(db, budget_seconds=60)["watches"] == 3
+    db.close()
+
+
+def test_frontend_and_game_served_locally(client):
+    assert "app.js" in client.get("/").text
+    assert client.get("/static/app.js").status_code == 200
     r = client.get("/juegos/digiz/")
-    assert r.status_code == 200 and "phaser.js" in r.text
-    assert client.get("/juegos/digiz/js/nivel1.js").status_code == 200
+    assert r.status_code == 200 and "phaser.js" in r.text and "cordova" not in r.text
+
+
+def test_database_url_normalization(monkeypatch):
+    from app import config
+    monkeypatch.setenv("DATABASE_URL", "postgres://u:p@h/db?sslmode=require")
+    assert config._database_url() == ("postgresql+psycopg://u:p@h/db?sslmode=require", True)
+    monkeypatch.delenv("DATABASE_URL")
+    monkeypatch.setenv("POSTGRES_URL", "postgresql://u:p@h/db")
+    assert config._database_url()[0] == "postgresql+psycopg://u:p@h/db"
+    monkeypatch.delenv("POSTGRES_URL")
+    monkeypatch.setenv("VERCEL", "1")
+    monkeypatch.setattr(config, "ON_VERCEL", True)
+    assert config._database_url() == ("sqlite:////tmp/negocio.db", False)
+
+
+def test_vercel_rewritten_path(client):
+    make_product(client)
+    r = client.get("/api/index?path=products&q=Aud")
+    assert r.status_code == 200 and len(r.json()) == 1
+    assert client.get("/api/index?path=products&q=zzz").json() == []

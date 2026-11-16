@@ -11,6 +11,7 @@ from urllib.parse import urlencode
 import httpx
 from sqlalchemy.orm import Session
 
+from .. import clock
 from ..models import Customer, Listing, Product, Sale, SaleItem
 from . import settings as cfg
 from .inventory import apply_stock
@@ -46,7 +47,7 @@ def auth_url(db: Session) -> str:
 
 
 def _save_token(db: Session, data: dict) -> None:
-    expires = datetime.now() + timedelta(seconds=int(data.get("expires_in", 21600)) - 120)
+    expires = clock.now() + timedelta(seconds=int(data.get("expires_in", 21600)) - 120)
     values = {
         "ml_access_token": data["access_token"],
         "ml_token_expires": expires.isoformat(timespec="seconds"),
@@ -86,7 +87,7 @@ def access_token(db: Session) -> str:
     if not token:
         return ""
     expires = s["ml_token_expires"]
-    if expires and datetime.fromisoformat(expires) < datetime.now() and s["ml_refresh_token"]:
+    if expires and datetime.fromisoformat(expires) < clock.now() and s["ml_refresh_token"]:
         data = _token_request({
             "grant_type": "refresh_token",
             "client_id": s["ml_app_id"],
@@ -206,7 +207,7 @@ def import_order(db: Session, order: dict) -> str:
         channel="mercadolibre",
         external_id=ext_id,
         status=status,
-        date=date.fromisoformat(order.get("date_created", date.today().isoformat())[:10]),
+        date=date.fromisoformat(order.get("date_created", clock.today().isoformat())[:10]),
         customer_id=customer.id if customer else None,
         commission=0,
         notes=f"Importado de Mercado Libre (pack {order.get('pack_id') or '-'})",
@@ -234,7 +235,7 @@ def import_order(db: Session, order: dict) -> str:
 
 def sync_orders(db: Session, days: int = 30) -> dict:
     user_id = cfg.get(db, "ml_user_id")
-    since = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%dT00:00:00.000-00:00")
+    since = (clock.now() - timedelta(days=days)).strftime("%Y-%m-%dT00:00:00.000-00:00")
     counts = {"nueva": 0, "actualizada": 0}
     offset = 0
     while True:

@@ -1,8 +1,9 @@
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, selectinload
 
+from .. import clock
 from ..database import get_db
 from ..models import MarketResult, MarketSearch, PriceSnapshot, WatchItem
 from ..schemas import ResultOut, SearchIn, SearchOut, SnapshotOut, WatchIn, WatchOut
@@ -192,7 +193,7 @@ def run_due(db: Session = Depends(get_db)):
 
 @router.get("/market/new-products")
 def new_products(hours: int = 48, db: Session = Depends(get_db)):
-    since = datetime.now() - timedelta(hours=hours)
+    since = clock.now() - timedelta(hours=hours)
     rows = (db.query(MarketResult).join(MarketSearch)
             .filter(MarketResult.first_seen >= since)
             .order_by(MarketResult.first_seen.desc()).limit(300).all())

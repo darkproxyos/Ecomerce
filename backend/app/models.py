@@ -3,8 +3,10 @@ from __future__ import annotations
 import datetime as dt
 from datetime import datetime
 
+from . import clock
+
 from sqlalchemy import (
-    Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint,
+    Boolean, Date, DateTime, Float, ForeignKey, Integer, LargeBinary, String, Text, UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -15,8 +17,7 @@ SALE_STATUSES = ("pendiente", "pagado", "enviado", "entregado", "cancelado")
 PRODUCT_STATUSES = ("activo", "borrador", "pausado", "agotado")
 
 
-def now() -> datetime:
-    return datetime.now()
+now = clock.now
 
 
 class Product(Base):
@@ -52,7 +53,11 @@ class ProductImage(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     product_id: Mapped[int] = mapped_column(ForeignKey("products.id", ondelete="CASCADE"))
-    filename: Mapped[str] = mapped_column(String(255))
+    filename: Mapped[str] = mapped_column(String(255), default="")
+    content_type: Mapped[str] = mapped_column(String(40), default="image/jpeg")
+    size: Mapped[int] = mapped_column(Integer, default=0)
+    # La foto se guarda en la base (Vercel no tiene disco persistente). Se carga solo al pedirla.
+    data: Mapped[bytes] = mapped_column(LargeBinary, deferred=True)
     position: Mapped[int] = mapped_column(Integer, default=0)
     product: Mapped[Product] = relationship(back_populates="images")
 
@@ -97,7 +102,7 @@ class Sale(Base):
     __table_args__ = (UniqueConstraint("channel", "external_id", name="uq_sale_external"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    date: Mapped[dt.date] = mapped_column(Date, default=dt.date.today)
+    date: Mapped[dt.date] = mapped_column(Date, default=clock.today)
     channel: Mapped[str] = mapped_column(String(30), default="marketplace")
     status: Mapped[str] = mapped_column(String(20), default="pagado")
     customer_id: Mapped[int | None] = mapped_column(
@@ -150,7 +155,7 @@ class Expense(Base):
     __tablename__ = "expenses"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    date: Mapped[dt.date] = mapped_column(Date, default=dt.date.today)
+    date: Mapped[dt.date] = mapped_column(Date, default=clock.today)
     category: Mapped[str] = mapped_column(String(80), default="general")
     description: Mapped[str] = mapped_column(String(255), default="")
     amount: Mapped[float] = mapped_column(Float, default=0)

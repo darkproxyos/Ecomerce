@@ -7,7 +7,8 @@ import pytest
 
 _tmp = tempfile.mkdtemp()
 os.environ["DATA_DIR"] = _tmp
-os.environ["DATABASE_URL"] = f"sqlite:///{_tmp}/test.db"
+# Para probar contra PostgreSQL: TEST_DATABASE_URL=postgresql://... pytest
+os.environ["DATABASE_URL"] = os.getenv("TEST_DATABASE_URL", f"sqlite:///{_tmp}/test.db")
 os.environ["SCHEDULER_ENABLED"] = "0"
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
