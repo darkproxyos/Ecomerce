@@ -7,7 +7,16 @@ from sqlalchemy.orm import Session, selectinload
 from .. import clock
 from ..database import get_db
 from ..models import CHANNELS, Expense, MarketResult, MarketSearch, Product, Sale, WatchItem
+from ..services import roadmap as rm
 from ..services import settings as cfg
+from .products import aging_cfg, product_out
+
+
+def _roadmap_summary(db: Session) -> dict:
+    r = rm.roadmap(db)
+    p = r["phases"][r["current"]]
+    return {"current": r["current"], "tag": p["tag"], "title": p["title"],
+            "progress_pct": p["progress_pct"], "next": p["next"]}
 
 router = APIRouter(prefix="/api", tags=["dashboard"])
 
@@ -91,7 +100,11 @@ def dashboard(days: int = 30, db: Session = Depends(get_db)):
     def rnd(d: dict) -> dict:
         return {k: round(v, 2) if isinstance(v, float) else v for k, v in d.items()}
 
-    products = db.query(Product).all()
+    products = db.query(Product).options(selectinload(Product.images)).all()
+    ag_cfg = aging_cfg(db)
+    aging_items = [o for o in (product_out(p, 0, ag_cfg) for p in products) if o.aging]
+    aging_items.sort(key=lambda o: -(o.days_listed or 0))
+    by_id = {p.id: p for p in products}
     low_stock = sorted(
         [{"id": p.id, "name": p.name, "sku": p.sku, "stock": p.stock, "min_stock": p.min_stock}
          for p in products if p.status != "borrador" and p.stock <= p.min_stock],
@@ -138,6 +151,15 @@ def dashboard(days: int = 30, db: Session = Depends(get_db)):
             "retail_value": round(sum(p.price * max(p.stock, 0) for p in products), 2),
         },
         "low_stock": low_stock[:10],
+        "aging": {
+            "bajar": sum(1 for o in aging_items if o.aging == "bajar"),
+            "liquidar": sum(1 for o in aging_items if o.aging == "liquidar"),
+            "stuck_value": round(sum(by_id[o.id].cost * o.stock for o in aging_items), 2),
+            "items": [{"id": o.id, "name": o.name, "price": o.price, "days": o.days_listed,
+                       "aging": o.aging, "suggested_price": o.suggested_price,
+                       "image": o.images[0].url if o.images else ""} for o in aging_items[:8]],
+        },
+        "roadmap": _roadmap_summary(db),
         "alerts": alerts[:10],
         "new_market_count": len(new_market),
         "pending_orders": sum(1 for s in sales if s.status in ("pendiente", "pagado")),

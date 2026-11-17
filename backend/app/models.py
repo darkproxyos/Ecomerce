@@ -15,6 +15,7 @@ from .database import Base
 CHANNELS = ("mercadolibre", "marketplace", "directo", "otro")
 SALE_STATUSES = ("pendiente", "pagado", "enviado", "entregado", "cancelado")
 PRODUCT_STATUSES = ("activo", "borrador", "pausado", "agotado")
+OPPORTUNITY_STATUSES = ("idea", "negociando", "comprado", "descartado")
 
 
 now = clock.now
@@ -37,6 +38,8 @@ class Product(Base):
     status: Mapped[str] = mapped_column(String(20), default="activo")
     supplier: Mapped[str] = mapped_column(String(150), default="")
     notes: Mapped[str] = mapped_column(Text, default="")
+    # Desde cuándo está publicado: sirve para avisar cuándo bajar el precio o liquidar.
+    listed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=now, onupdate=now)
 
@@ -240,6 +243,30 @@ class MarketResult(Base):
     last_seen: Mapped[datetime] = mapped_column(DateTime, default=now)
 
     search: Mapped[MarketSearch] = relationship(back_populates="results")
+
+
+class Opportunity(Base):
+    """Algo que podrías comprar para revender (fase de compra-venta)."""
+
+    __tablename__ = "opportunities"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    title: Mapped[str] = mapped_column(String(200))
+    url: Mapped[str] = mapped_column(String(1000), default="")
+    source: Mapped[str] = mapped_column(String(40), default="marketplace")
+    asking_price: Mapped[float] = mapped_column(Float, default=0)
+    offer_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    resale_price: Mapped[float] = mapped_column(Float, default=0)
+    channel: Mapped[str] = mapped_column(String(30), default="marketplace")
+    fee_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    shipping: Mapped[float] = mapped_column(Float, default=0)
+    other_costs: Mapped[float] = mapped_column(Float, default=0)
+    status: Mapped[str] = mapped_column(String(20), default="idea")
+    notes: Mapped[str] = mapped_column(Text, default="")
+    product_id: Mapped[int | None] = mapped_column(
+        ForeignKey("products.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now)
 
 
 class Setting(Base):

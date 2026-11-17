@@ -223,9 +223,17 @@ route('inicio', 'Inicio', async () => {
 
   view.innerHTML = `
   <div class="stack">
-    ${(d.alerts.length || d.low_stock.length || d.new_market_count) ? `<div class="row">
+    <a class="card route-strip" href="#/ruta">
+      <span class="ptag">${esc(d.roadmap.tag)}</span>
+      <div class="grow"><b>${esc(d.roadmap.title)}</b>
+        <div class="small muted">Para avanzar: ${esc(d.roadmap.next)}</div></div>
+      <div class="route-prog"><div class="bar-track"><div class="bar-fill" style="width:${d.roadmap.progress_pct}%"></div></div>
+        <span class="small muted">${d.roadmap.progress_pct}% hacia la siguiente fase</span></div>
+    </a>
+    ${(d.alerts.length || d.low_stock.length || d.new_market_count || d.aging.items.length || d.pending_orders) ? `<div class="row">
       ${d.pending_orders ? `<a class="badge warn" href="#/ventas?status=pagado">● ${d.pending_orders} pedidos por enviar</a>` : ''}
       ${d.low_stock.length ? `<a class="badge bad" href="#/productos?low=1">▼ ${d.low_stock.length} con stock bajo</a>` : ''}
+      ${d.aging.items.length ? `<a class="badge warn" href="#/productos?aging=1">⏱ ${d.aging.bajar + d.aging.liquidar} para bajar precio o liquidar</a>` : ''}
       ${d.alerts.length ? `<a class="badge warn" href="#/competencia">◎ ${d.alerts.length} alertas de precio</a>` : ''}
       ${d.new_market_count ? `<a class="badge info" href="#/mercado">✦ ${d.new_market_count} productos nuevos en el mercado</a>` : ''}
     </div>` : ''}
@@ -298,7 +306,24 @@ route('inicio', 'Inicio', async () => {
           : '<div class="empty">Sin alertas. Agrega URLs en <a href="#/competencia">Precios competencia</a>.</div>'}
       </div>
     </div>
+    <div class="card">
+      <div class="card-head"><h2>Rotación de inventario</h2><a class="small" href="#/productos?aging=1">Ver todos →</a></div>
+      ${d.aging.items.length ? `
+        <p class="small muted" style="margin:0 0 8px">Tienes <b>${money(d.aging.stuck_value)}</b> detenidos en artículos que no se venden.
+          Baja el precio a los ${esc(state.settings.aging_warn_days || 14)} días y liquida a los ${esc(state.settings.aging_clear_days || 30)}.</p>
+        <div class="list">${d.aging.items.map(a => `<div class="list-item">${thumb(a.image)}
+          <a class="grow" href="#/productos/${a.id}" style="color:inherit"><div class="ellipsis">${esc(a.name)}</div>
+            <div class="small muted">${a.days} días publicado · ahora ${money(a.price)}</div></a>
+          ${badge(a.aging === 'liquidar' ? 'liquidar' : 'bajar', a.aging === 'liquidar' ? 'bad' : 'warn')}
+          <button class="btn sm" data-cut-dash="${a.id}">▼ ${money(a.suggested_price)}</button></div>`).join('')}</div>`
+        : '<div class="empty">✓ Todo lo publicado tiene menos de ' + esc(state.settings.aging_warn_days || 14) + ' días. Buena rotación.</div>'}
+    </div>
   </div>`;
+
+  $$('[data-cut-dash]').forEach(b => b.addEventListener('click', async () => {
+    const prod = await api(`/api/products/${b.dataset.cutDash}`);
+    applySuggested(prod, render, b);
+  }));
 
   if (channels.length) {
     const labels = d.series.map(r => fmtDate(r.date));
@@ -346,6 +371,8 @@ route('productos', 'Productos', async (rest, qs) => {
       <input type="search" id="pf-q" placeholder="Buscar por nombre, SKU, marca…">
       <select id="pf-cat"><option value="">Todas las categorías</option>${cats.map(c => `<option>${esc(c)}</option>`).join('')}</select>
       <select id="pf-status"><option value="">Todos los estados</option>${Object.keys(PRODUCT_STATUS).map(s => `<option>${s}</option>`).join('')}</select>
+      <select id="pf-aging"><option value="">Rotación: todos</option><option value="any" ${qs.get('aging') ? 'selected' : ''}>Para bajar precio o liquidar</option>
+        <option value="bajar">Para bajar precio</option><option value="liquidar">Para liquidar</option></select>
       <label class="row small"><input type="checkbox" id="pf-low" style="width:auto" ${qs.get('low') ? 'checked' : ''}> Stock bajo</label>
       <span class="spacer"></span>
       <div class="seg" id="pf-mode"><button data-m="grid">▦ Tarjetas</button><button data-m="table">☰ Tabla</button></div>
@@ -355,6 +382,7 @@ route('productos', 'Productos', async (rest, qs) => {
   const load = async () => {
     const params = new URLSearchParams({ q: $('#pf-q').value, category: $('#pf-cat').value, status: $('#pf-status').value });
     if ($('#pf-low').checked) params.set('low_stock', 'true');
+    if ($('#pf-aging').value) params.set('aging', $('#pf-aging').value);
     const items = await api('/api/products?' + params);
     $$('#pf-mode button').forEach(b => b.classList.toggle('on', b.dataset.m === mode));
     const box = $('#plist');
@@ -372,25 +400,36 @@ route('productos', 'Productos', async (rest, qs) => {
             <div class="row"><span class="price">${money(p.price)}</span><span class="spacer"></span>${badge(p.status, PRODUCT_STATUS[p.status])}</div>
             <div class="small muted">${esc(p.sku || 'sin SKU')} · margen ${p.margin_pct}%</div>
             <div class="row small">${p.low_stock ? badge(`stock ${p.stock}`, p.stock <= 0 ? 'bad' : 'warn') : `<span class="muted">stock ${p.stock}</span>`}
+              ${agingBadge(p)}
               <span class="spacer"></span>${[...new Set(p.listings.map(l => l.channel))].map(c => `<span class="dot" title="${CH[c]?.label}" style="background:var(${CH[c]?.color})"></span>`).join('')}</div>
+            ${p.stock > 0 && p.status !== 'borrador' ? `<div class="card-actions">
+              <button class="btn sm primary" data-sold="${p.id}">✓ Vendido</button>
+              ${p.aging ? `<button class="btn sm" data-cut="${p.id}" title="Aplica el precio sugerido y reinicia los días">▼ ${money(p.suggested_price)}</button>` : ''}
+            </div>` : ''}
           </div>
         </div>`).join('')}</div>`;
     } else {
       box.innerHTML = `<div class="card table-wrap"><table><thead><tr><th></th><th>Producto</th><th>SKU</th><th>Categoría</th>
-        <th class="num">Costo</th><th class="num">Precio</th><th class="num">Margen</th><th class="num">Stock</th><th class="num">Vendidos</th><th>Estado</th></tr></thead>
+        <th class="num">Costo</th><th class="num">Precio</th><th class="num">Margen</th><th class="num">Stock</th><th class="num">Vendidos</th><th>Publicado</th><th>Estado</th><th></th></tr></thead>
         <tbody>${items.map(p => `<tr class="clickable" data-id="${p.id}"><td>${thumb(p.images[0]?.url)}</td>
           <td><b>${esc(p.name)}</b><div class="small muted">${esc(p.brand)}</div></td><td>${esc(p.sku || '')}</td><td>${esc(p.category)}</td>
           <td class="num">${money(p.cost)}</td><td class="num">${money(p.price)}</td>
           <td class="num">${money(p.margin)} <span class="muted small">${p.margin_pct}%</span></td>
           <td class="num">${p.low_stock ? badge(p.stock, p.stock <= 0 ? 'bad' : 'warn') : p.stock}</td>
-          <td class="num">${p.units_sold}</td><td>${badge(p.status, PRODUCT_STATUS[p.status])}</td></tr>`).join('')}</tbody></table></div>`;
+          <td class="num">${p.units_sold}</td><td class="nowrap">${p.days_listed == null ? '<span class="muted">—</span>' : agingBadge(p, true)}</td>
+          <td>${badge(p.status, PRODUCT_STATUS[p.status])}</td>
+          <td class="nowrap">${p.stock > 0 && p.status !== 'borrador' ? `<button class="btn sm primary" data-sold="${p.id}">✓ Vendido</button>` : ''}
+            ${p.aging ? `<button class="btn sm" data-cut="${p.id}">▼ ${money(p.suggested_price)}</button>` : ''}</td></tr>`).join('')}</tbody></table></div>`;
     }
     $$('[data-id]', box).forEach(el => el.addEventListener('click', () => { location.hash = `#/productos/${el.dataset.id}`; }));
+    const find = id => items.find(x => x.id === Number(id));
+    $$('[data-sold]', box).forEach(b => b.addEventListener('click', e => { e.stopPropagation(); quickSale(find(b.dataset.sold), load); }));
+    $$('[data-cut]', box).forEach(b => b.addEventListener('click', e => { e.stopPropagation(); applySuggested(find(b.dataset.cut), load, b); }));
   };
 
   let t;
   $('#pf-q').addEventListener('input', () => { clearTimeout(t); t = setTimeout(load, 250); });
-  ['#pf-cat', '#pf-status', '#pf-low'].forEach(s => $(s).addEventListener('change', load));
+  ['#pf-cat', '#pf-status', '#pf-low', '#pf-aging'].forEach(s => $(s).addEventListener('change', load));
   $$('#pf-mode button').forEach(b => b.addEventListener('click', () => { mode = b.dataset.m; localStorageSet('productView', mode); load(); }));
   window.reloadProducts = load;
   await load();
@@ -442,6 +481,9 @@ async function productEditor(id) {
           <label class="field">Estado<select name="status">${Object.keys(PRODUCT_STATUS).map(s => `<option ${s === p.status ? 'selected' : ''}>${s}</option>`).join('')}</select></label>
           <label class="field">Proveedor<input name="supplier" value="${esc(p.supplier)}"></label>
           <div class="field full" id="margin-info"></div>
+          ${id && p.days_listed != null ? `<div class="field full"><div class="row">${agingBadge(p, true)}
+            <span class="small muted">${p.aging ? `Precio sugerido: <b>${money(p.suggested_price)}</b>.` : 'Publicado y a la venta.'}</span>
+            <span class="spacer"></span><button type="button" class="btn sm" id="p-relist">↻ Ya lo renové o republiqué</button></div></div>` : ''}
           <label class="field full">Descripción<textarea name="description" rows="5">${esc(p.description)}</textarea></label>
           <label class="field full">Notas internas<textarea name="notes" rows="2">${esc(p.notes)}</textarea></label>
         </form>
@@ -488,6 +530,10 @@ async function productEditor(id) {
   }));
   if (!id) return;
 
+  $('#p-relist', el)?.addEventListener('click', e => busy(e.currentTarget, async () => {
+    await api(`/api/products/${id}/relist`, { method: 'POST' });
+    toast('Listo: los días publicados empiezan de nuevo', 'ok'); window.reloadProducts?.(); m.close();
+  }));
   $('#p-del', el).addEventListener('click', async () => {
     if (!await confirmDialog(`¿Eliminar "${p.name}" y sus fotos? Las ventas registradas se conservan.`)) return;
     await api(`/api/products/${id}`, { method: 'DELETE' });
@@ -609,6 +655,57 @@ function listingEditor(l, onSaved) {
   }));
 }
 window.productEditor = productEditor;
+
+function agingBadge(p, always = false) {
+  if (p.days_listed == null) return '';
+  const d = p.days_listed === 1 ? '1 día' : `${p.days_listed} días`;
+  if (p.aging === 'liquidar') return badge(`⏱ ${d} · liquidar`, 'bad');
+  if (p.aging === 'bajar') return badge(`⏱ ${d} · bajar precio`, 'warn');
+  return always || p.days_listed > 0 ? `<span class="small muted nowrap">⏱ ${d}</span>` : '';
+}
+
+async function applySuggested(p, onDone, btn) {
+  const run = async () => {
+    await api(`/api/products/${p.id}`, { method: 'PUT', body: { ...p, price: p.suggested_price } });
+    await api(`/api/products/${p.id}/relist`, { method: 'POST' });
+    toast(`Nuevo precio ${money(p.suggested_price)}. Actualiza también tu anuncio.`, 'ok');
+    onDone && onDone();
+  };
+  return btn ? busy(btn, run) : run().catch(e => toast(e.message, 'error'));
+}
+
+async function quickSale(p, onDone) {
+  const customers = await api('/api/customers').catch(() => []);
+  const m = openModal({
+    title: `Vendido: ${p.name}`,
+    body: `<form id="qs-form" class="form-grid">
+      <label class="field">Precio final de venta<input type="number" name="price" min="0" step="0.01" required value="${p.price}"></label>
+      ${p.stock > 1 ? `<label class="field">Cantidad<input type="number" name="quantity" min="1" max="${p.stock}" step="1" value="1"></label>` : ''}
+      <label class="field">Canal<select name="channel">${Object.entries(CH).map(([k, v]) => `<option value="${k}" ${k === 'marketplace' ? 'selected' : ''}>${v.label}</option>`).join('')}</select></label>
+      <label class="field">Cliente (opcional)<input name="customer_name" list="qs-cust" placeholder="Nombre">
+        <datalist id="qs-cust">${customers.map(c => `<option>${esc(c.name)}</option>`).join('')}</datalist></label>
+      <label class="field">Envío que pagaste<input type="number" name="shipping_cost" min="0" step="0.01" value="0"></label>
+      <div class="field full" id="qs-sum"></div></form>`,
+    foot: '<button class="btn" data-close>Cancelar</button><button class="btn primary" id="qs-save">Registrar venta</button>',
+  });
+  const form = $('#qs-form', m.el);
+  const sum = () => {
+    const f = formData(form);
+    const qty = f.quantity || 1, total = (f.price || 0) * qty;
+    const fee = total * Number(state.settings[`fee_${f.channel}_pct`] || 0) / 100;
+    const profit = total - p.cost * qty - fee - (f.shipping_cost || 0);
+    $('#qs-sum', m.el).innerHTML = `<div class="notice" style="margin:0">Ganancia de esta venta: <b style="color:var(${profit < 0 ? '--bad' : '--good'})">${money(profit)}</b>
+      <span class="muted">(costo ${money(p.cost * qty)}${fee ? ` · comisión ${money(fee)}` : ''})</span></div>`;
+  };
+  form.addEventListener('input', sum); form.addEventListener('change', sum); sum();
+  $('#qs-save', m.el).addEventListener('click', e => busy(e.currentTarget, async () => {
+    if (!form.reportValidity()) return;
+    const f = formData(form);
+    await api(`/api/products/${p.id}/quick-sale`, { method: 'POST', body: { ...f, quantity: f.quantity || 1 } });
+    toast('¡Venta registrada! Inventario actualizado', 'ok');
+    m.close(); onDone && onDone();
+  }));
+}
 
 // ======================================================================= VENTAS
 route('ventas', 'Ventas', async (rest, qs) => {
@@ -1024,6 +1121,301 @@ async function searchEditor(s) {
   }));
 }
 
+// ======================================================================= OPORTUNIDADES
+const OPP_STATUS = { idea: '', negociando: 'warn', comprado: 'good', descartado: 'bad' };
+const OPP_SOURCES = ['marketplace', 'bazar', 'tianguis', 'venta de garaje', 'remate', 'otro'];
+const VERDICT = {
+  comprar: ['✓ Cómpralo', 'good'], rapido: ['! Solo si se vende rápido', 'warn'], no: ['✕ No conviene', 'bad'],
+};
+
+function oppCalc(o) {
+  const buy = o.offer_price != null && o.offer_price !== '' ? Number(o.offer_price) : Number(o.asking_price || 0);
+  const feePct = o.fee_pct != null && o.fee_pct !== '' ? Number(o.fee_pct) : Number(state.settings[`fee_${o.channel}_pct`] || 0);
+  const target = Number(state.settings.target_margin_pct || 30);
+  const resale = Number(o.resale_price || 0), ship = Number(o.shipping || 0), other = Number(o.other_costs || 0);
+  const fee = resale * feePct / 100;
+  const profit = resale - buy - fee - ship - other;
+  const margin = resale ? profit / resale * 100 : 0;
+  const maxPay = Math.max(0, resale - fee - ship - other - resale * target / 100);
+  const verdict = margin >= target ? 'comprar' : margin >= target / 2 ? 'rapido' : 'no';
+  return { buy, feePct, fee, profit, margin, roi: buy ? profit / buy * 100 : null, maxPay, verdict, target };
+}
+
+route('compras', 'Oportunidades de compra', async () => {
+  setActions('');
+  view.innerHTML = `<div class="grid cols-2">
+    <div class="stack">
+      <div class="card"><div class="card-head"><h2>Evalúa una compra</h2><span class="small muted">antes de pagar</span></div>
+        <form id="op-form" class="form-grid" autocomplete="off">
+          <label class="field full">¿Qué es? *<input name="title" required maxlength="200" placeholder="Ej. Taladro DeWalt 20V con 2 baterías"></label>
+          <label class="field full">Enlace del anuncio (opcional)<input name="url" type="url" placeholder="https://www.facebook.com/marketplace/item/…"></label>
+          <label class="field">Dónde lo viste<select name="source">${OPP_SOURCES.map(x => `<option>${x}</option>`).join('')}</select></label>
+          <label class="field">Precio que piden<input name="asking_price" type="number" min="0" step="1" value="600"></label>
+          <label class="field">Tu oferta (opcional)<input name="offer_price" type="number" min="0" step="1" placeholder="Si negocias"></label>
+          <label class="field">Precio al que lo revendes<input name="resale_price" type="number" min="0" step="1" value="1500"></label>
+          <label class="field">Dónde lo venderás<select name="channel">${Object.entries(CH).map(([k, v]) => `<option value="${k}">${v.label}</option>`).join('')}</select></label>
+          <label class="field">Envío que pagarías<input name="shipping" type="number" min="0" step="1" value="0"></label>
+          <label class="field">Gasolina, limpieza, refacciones<input name="other_costs" type="number" min="0" step="1" value="80"></label>
+          <label class="field full">Notas<input name="notes" placeholder="Estado, accesorios, lo que hay que reparar…"></label>
+        </form>
+        <div id="op-live" style="margin-top:14px"></div>
+        <div class="row" style="margin-top:12px"><span class="small muted">Los números de ejemplo son una herramienta de $600 que revendes en $1,500.</span>
+          <span class="spacer"></span><button class="btn primary" id="op-save">Guardar oportunidad</button></div>
+      </div>
+    </div>
+    <div class="stack"><div class="grid kpis" id="op-kpis"></div>
+      <div class="card"><h2 style="margin-bottom:8px">Cómo decidir</h2>
+        <ul class="small" style="padding-left:18px;margin:0">
+          <li>Busca el mismo artículo en Marketplace y Mercado Libre y toma el precio de los que <b>sí se vendieron</b>.</li>
+          <li>Paga como máximo lo que indica “Lo máximo que deberías pagar”. Ofrece menos para tener margen al negociar.</li>
+          <li>Pruébalo antes de pagar. En celulares, revisa que el IMEI no esté reportado.</li>
+          <li>Cuando lo compres, pulsa <b>La compré</b>: se crea el producto con su costo real.</li></ul></div>
+    </div>
+  </div>
+  <div class="card" style="margin-top:16px"><div class="card-head"><h2>Tus oportunidades</h2>
+    <select id="op-filter" style="width:auto"><option value="">Todas</option>${Object.keys(OPP_STATUS).map(x => `<option>${x}</option>`).join('')}</select></div>
+    <div id="op-list" class="table-wrap"></div></div>`;
+
+  const form = $('#op-form');
+  const read = () => {
+    const f = formData(form);
+    if (f.offer_price === null) delete f.offer_price;
+    return f;
+  };
+  const live = () => {
+    const c = oppCalc(read());
+    const [txt, kind] = VERDICT[c.verdict];
+    $('#op-live').innerHTML = `<div class="opp-result">
+      <div><div class="small muted">Ganancia neta</div><div class="opp-big" style="color:var(${c.profit < 0 ? '--bad' : '--text'})">${money(c.profit)}</div>${badge(txt, kind)}</div>
+      <div class="list" style="flex:1;min-width:200px">
+        <div class="list-item"><span class="grow">Margen</span><b>${c.margin.toFixed(0)}%</b></div>
+        <div class="list-item"><span class="grow">Rendimiento sobre lo que pagas</span><b>${c.roi == null ? '—' : c.roi.toFixed(0) + '%'}</b></div>
+        ${c.fee ? `<div class="list-item"><span class="grow">Comisión (${c.feePct}%)</span><b>${money(c.fee)}</b></div>` : ''}
+        <div class="list-item"><span class="grow">Lo máximo que deberías pagar (${c.target}% de margen)</span><b>${money(c.maxPay)}</b></div>
+      </div></div>`;
+  };
+  form.addEventListener('input', live); form.addEventListener('change', live); live();
+
+  const load = async () => {
+    const list = await api('/api/opportunities' + ($('#op-filter').value ? `?status=${$('#op-filter').value}` : ''));
+    const open = list.filter(o => o.status === 'idea' || o.status === 'negociando');
+    const good = open.filter(o => o.calc.verdict === 'comprar');
+    const bought = list.filter(o => o.status === 'comprado');
+    $('#op-kpis').innerHTML = `
+      <div class="card kpi"><div class="label">Abiertas</div><div class="value">${open.length}</div><div class="delta">${good.length} valen la pena</div></div>
+      <div class="card kpi"><div class="label">Ganancia posible</div><div class="value">${money(good.reduce((a, o) => a + o.calc.profit, 0))}</div><div class="delta">de las que valen la pena</div></div>
+      <div class="card kpi"><div class="label">Compradas</div><div class="value">${bought.length}</div><div class="delta">${money(bought.reduce((a, o) => a + o.calc.buy_price, 0))} invertidos</div></div>`;
+    $('#op-list').innerHTML = list.length ? `<table><thead><tr><th>Artículo</th><th class="num">Piden / oferta</th><th class="num">Reventa</th>
+      <th class="num">Ganancia</th><th class="num">Máx. a pagar</th><th>Veredicto</th><th>Estado</th><th></th></tr></thead><tbody>
+      ${list.map(o => `<tr><td><b>${o.url ? `<a href="${esc(o.url)}" target="_blank" rel="noopener">${esc(o.title)} ↗</a>` : esc(o.title)}</b>
+          <div class="small muted">${esc(o.source)} · ${fmtDate(o.created_at)}${o.notes ? ' · ' + esc(o.notes) : ''}</div></td>
+        <td class="num">${money(o.asking_price)}${o.offer_price != null ? `<div class="small muted">oferta ${money(o.offer_price)}</div>` : ''}</td>
+        <td class="num">${money(o.resale_price)}<div class="small muted">${(CH[o.channel] || {}).label || ''}</div></td>
+        <td class="num"><b style="color:var(${o.calc.profit < 0 ? '--bad' : '--text'})">${money(o.calc.profit)}</b><div class="small muted">${o.calc.margin_pct}%</div></td>
+        <td class="num">${money(o.calc.max_pay)}</td>
+        <td>${badge(...VERDICT[o.calc.verdict])}</td>
+        <td>${o.status === 'comprado' ? (o.product_id ? `<a class="badge good" href="#/productos/${o.product_id}">comprado → producto</a>` : badge('comprado', 'good'))
+          : `<select class="op-st" data-id="${o.id}" style="width:auto;padding:3px 6px">${['idea', 'negociando', 'descartado'].map(x => `<option ${x === o.status ? 'selected' : ''}>${x}</option>`).join('')}</select>`}</td>
+        <td class="right nowrap">${o.status !== 'comprado' ? `<button class="btn sm primary" data-buy="${o.id}">La compré</button>` : ''}
+          <button class="btn sm danger" data-del="${o.id}">✕</button></td></tr>`).join('')}
+      </tbody></table>` : '<div class="empty"><div class="big">🔍</div>Aún no anotas oportunidades. Evalúa una arriba y guárdala.</div>';
+    $$('.op-st').forEach(sel => sel.addEventListener('change', async () => {
+      const o = list.find(x => x.id === Number(sel.dataset.id));
+      await api(`/api/opportunities/${o.id}`, { method: 'PUT', body: { ...o, status: sel.value } }); load();
+    }));
+    $$('#op-list [data-del]').forEach(b => b.addEventListener('click', async () => {
+      if (!await confirmDialog('¿Eliminar esta oportunidad?')) return;
+      await api(`/api/opportunities/${b.dataset.del}`, { method: 'DELETE' }); load();
+    }));
+    $$('#op-list [data-buy]').forEach(b => b.addEventListener('click', () => buyOpportunity(list.find(x => x.id === Number(b.dataset.buy)))));
+  };
+  $('#op-filter').addEventListener('change', load);
+  $('#op-save').addEventListener('click', e => busy(e.currentTarget, async () => {
+    if (!form.reportValidity()) return;
+    await api('/api/opportunities', { method: 'POST', body: read() });
+    toast('Oportunidad guardada', 'ok');
+    form.title.value = ''; form.url.value = ''; form.notes.value = ''; form.offer_price.value = '';
+    load();
+  }));
+  await load();
+});
+
+function buyOpportunity(o) {
+  const m = openModal({
+    title: `La compré: ${o.title}`,
+    body: `<form id="buy-form" class="form-grid">
+      <label class="field">¿Cuánto pagaste?<input type="number" name="paid_price" min="0" step="1" required value="${o.offer_price ?? o.asking_price}"></label>
+      <label class="field">Gasolina, limpieza, refacciones<input type="number" name="other_costs" min="0" step="1" value="${o.other_costs}"></label>
+      <p class="small muted full" style="margin:0">Se crea el producto con ese costo y precio de venta ${money(o.resale_price)}, listo para subir fotos y publicar.</p></form>`,
+    foot: '<button class="btn" data-close>Cancelar</button><button class="btn primary" id="buy-ok">Crear producto</button>',
+  });
+  $('#buy-ok', m.el).addEventListener('click', e => busy(e.currentTarget, async () => {
+    const f = formData($('#buy-form', m.el));
+    const r = await api(`/api/opportunities/${o.id}/buy`, { method: 'POST', body: f });
+    toast('Producto creado. Sube las fotos y publícalo.', 'ok');
+    m.close();
+    location.hash = `#/productos/${r.product_id}`;
+  }));
+}
+
+// ======================================================================= MI RUTA
+function fmtMetric(v, unit) {
+  if (unit === 'money') return money(v);
+  if (unit === 'pct') return `${v}%`;
+  return num(v);
+}
+
+route('ruta', 'Mi ruta', async () => {
+  const r = await api('/api/roadmap');
+  const cur = r.phases[r.current];
+  const crit = c => {
+    const pct = c.target ? Math.max(0, Math.min(100, c.value / c.target * 100)) : 100;
+    return `<div class="bar-item"><div class="top"><span>${esc(c.label)}</span>
+      <span class="num">${fmtMetric(c.value, c.unit)} <span class="muted">/ ${fmtMetric(c.target, c.unit)}</span> ${c.met ? '✓' : ''}</span></div>
+      <div class="bar-track"><div class="bar-fill" style="width:${pct.toFixed(0)}%;background:var(${c.met ? '--good' : '--s1'})"></div></div></div>`;
+  };
+  view.innerHTML = `<div class="stack">
+    <div class="grid cols-2" style="align-items:start">
+      <div class="card route-hero">
+        <div class="row"><span class="ptag">${esc(cur.tag)}</span><span class="small muted">${esc(cur.time)}</span></div>
+        <h2 style="font-size:22px;margin-top:10px">${esc(cur.title)}</h2>
+        <p class="muted" style="margin:6px 0 14px">Meta: ${esc(cur.goal)}</p>
+        <div class="bar-list">${cur.criteria.map(crit).join('')}</div>
+        <p class="small" style="margin-bottom:0"><b>Para pasar a la siguiente fase:</b> ${esc(cur.next)}
+          <span class="muted">También puedes marcar todas las tareas de la fase.</span></p>
+      </div>
+      <div class="card">
+        <h2 style="margin-bottom:10px">Tu negocio hoy</h2>
+        <div class="list">
+          <div class="list-item"><span class="grow">Capital del negocio</span><b>${money(r.metrics.capital)}</b></div>
+          <div class="list-item"><span class="grow">Utilidad últimos 30 días</span><b>${money(r.metrics.profit_30)}</b></div>
+          <div class="list-item"><span class="grow">Ventas por semana</span><b>${r.metrics.sales_per_week}</b></div>
+          <div class="list-item"><span class="grow">Margen neto (60 días)</span><b>${r.metrics.margin_60}%</b></div>
+          <div class="list-item"><span class="grow">Tareas completadas</span><b id="tasks-count">${r.tasks_done} de ${r.tasks_total}</b></div>
+        </div>
+        <form id="cap-form" class="row" style="margin-top:12px">
+          <label class="field" style="flex:1">Capital con el que empezaste<input type="number" min="0" step="1" name="initial_capital" value="${r.initial_capital}"></label>
+          <button class="btn" style="align-self:flex-end">Guardar</button></form>
+        <p class="small muted" style="margin:6px 0 0">Capital = lo que pusiste al empezar + toda tu utilidad neta (ventas − costos − comisiones − envíos − gastos).
+          Si retiras dinero para ti, anótalo en Gastos con la categoría “retiro”.</p>
+      </div>
+    </div>
+    <div class="phases">${r.phases.map((p, i) => `
+      <details class="card phase ${i === r.current ? 'current' : ''}" ${i === r.current ? 'open' : ''}>
+        <summary class="phase-sum"><span class="ptag ${p.passed ? 'done' : ''}">${esc(p.tag)}</span>
+          <span class="grow"><b>${esc(p.title)}</b><span class="small muted"> · ${esc(p.time)}</span></span>
+          ${p.passed ? badge('✓ cumplida', 'good') : i === r.current ? badge('estás aquí', 'info') : ''}
+          <span class="small muted nowrap" data-phase-count="${p.id}">${p.tasks.filter(t => t.done).length}/${p.tasks.length}</span></summary>
+        <div class="phase-grid">
+          <div><div class="mini-title">Tareas</div>
+            ${p.tasks.map(t => `<label class="task"><input type="checkbox" data-task="${t.id}" ${t.done ? 'checked' : ''}><span>${esc(t.text)}</span></label>`).join('')}</div>
+          <div class="stack" style="gap:12px">
+            <div><div class="mini-title">En el panel</div>${p.app.map(a => `<a class="btn sm" style="margin:0 6px 6px 0" href="#/${a.route}">${esc(a.text)} →</a>`).join('')}</div>
+            <div><div class="mini-title">Herramientas</div><div class="small">${p.tools.map(esc).join(' · ')}</div></div>
+            <div><div class="mini-title">Avance con tus datos</div><div class="bar-list">${p.criteria.map(crit).join('')}</div></div>
+          </div>
+        </div>
+      </details>`).join('')}</div>
+  </div>`;
+  $$('[data-task]').forEach(cb => cb.addEventListener('change', async () => {
+    try { await api(`/api/roadmap/tasks/${cb.dataset.task}`, { method: 'PUT', body: { done: cb.checked } }); }
+    catch (e) { toast(e.message, 'error'); cb.checked = !cb.checked; return; }
+    const before = r.current;
+    const fresh = await api('/api/roadmap');
+    $('#tasks-count').textContent = `${fresh.tasks_done} de ${fresh.tasks_total}`;
+    fresh.phases.forEach(ph => {
+      const el = document.querySelector(`[data-phase-count="${ph.id}"]`);
+      if (el) el.textContent = `${ph.tasks.filter(t => t.done).length}/${ph.tasks.length}`;
+    });
+    if (fresh.current !== before) { toast(fresh.current > before ? '¡Fase cumplida! Pasas a la siguiente.' : 'Fase actualizada', 'ok'); render(); }
+  }));
+  $('#cap-form').addEventListener('submit', async e => {
+    e.preventDefault();
+    await api('/api/settings', { method: 'PUT', body: { initial_capital: String(e.target.initial_capital.value || 0) } });
+    toast('Capital inicial guardado', 'ok'); render();
+  });
+});
+
+// ======================================================================= RESPALDO
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(String(fr.result).split(',')[1]);
+    fr.onerror = reject;
+    fr.readAsDataURL(blob);
+  });
+}
+
+async function downloadBackup(statusEl) {
+  const b = await api('/api/backup');
+  const imgs = b.tables.product_images || [];
+  for (let i = 0; i < imgs.length; i++) {
+    statusEl.textContent = `Descargando fotos ${i + 1} de ${imgs.length}…`;
+    const res = await fetch(`/api/images/${imgs[i].id}`);
+    if (res.ok) imgs[i].data_b64 = await blobToBase64(await res.blob());
+  }
+  const name = (state.settings.business_name || 'panel').toLowerCase().replace(/[^a-z0-9]+/g, '-');
+  const blob = new Blob([JSON.stringify(b)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `respaldo-${name}-${today()}.json`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  const t = b.tables;
+  statusEl.textContent = `Respaldo listo: ${t.products.length} productos, ${imgs.length} fotos, ${t.sales.length} ventas.`;
+}
+
+async function restoreBackup(file, statusEl) {
+  let b;
+  try { b = JSON.parse(await file.text()); } catch { toast('El archivo no es un respaldo válido', 'error'); return; }
+  if (b.format !== 'panel-ventas-respaldo') { toast('El archivo no es un respaldo de este panel', 'error'); return; }
+  const t = b.tables || {};
+  const ok = await confirmDialog(`Se reemplazarán TODOS los datos de este panel por los del respaldo del ${fmtDate(b.exported_at)}: ` +
+    `${(t.products || []).length} productos, ${(t.sales || []).length} ventas y ${(t.product_images || []).length} fotos. Esto no se puede deshacer.`, 'Reemplazar datos');
+  if (!ok) return;
+  const imgs = t.product_images || [];
+  const payload = { ...b, tables: { ...t, product_images: imgs.map(({ data_b64, ...rest }) => rest) } };
+  statusEl.textContent = 'Restaurando datos…';
+  try {
+    await api('/api/restore', { method: 'POST', body: payload });
+    let done = 0, failed = 0;
+    for (const img of imgs) {
+      statusEl.textContent = `Subiendo fotos ${done + failed + 1} de ${imgs.length}…`;
+      if (!img.data_b64) { failed++; continue; }
+      try {
+        const bytes = Uint8Array.from(atob(img.data_b64), c => c.charCodeAt(0));
+        let f = new File([bytes], img.filename || `foto-${img.id}.jpg`, { type: img.content_type || 'image/jpeg' });
+        f = await compressImage(f);
+        const fd = new FormData();
+        fd.append('product_id', img.product_id); fd.append('position', img.position || 0); fd.append('file', f);
+        await api('/api/restore/image', { method: 'POST', form: fd });
+        done++;
+      } catch { failed++; }
+    }
+    statusEl.textContent = `Listo: datos restaurados y ${done} fotos subidas${failed ? ` (${failed} no se pudieron subir)` : ''}.`;
+    toast('Respaldo restaurado', 'ok');
+    state.settings = await api('/api/settings');
+    $('#brand-name').textContent = state.settings.business_name;
+  } catch (e) {
+    statusEl.textContent = `Error: ${e.message}`;
+    toast(e.message, 'error');
+  }
+}
+
+// ======================================================================= instalar como app
+let installPrompt = null;
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installPrompt = e; setupInstallButtons(); });
+window.addEventListener('appinstalled', () => { installPrompt = null; setupInstallButtons(); toast('App instalada', 'ok'); });
+function setupInstallButtons() {
+  $$('.install-btn').forEach(b => {
+    b.classList.toggle('hidden', !installPrompt);
+    b.onclick = async () => { if (!installPrompt) return; installPrompt.prompt(); await installPrompt.userChoice; installPrompt = null; setupInstallButtons(); };
+  });
+}
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => { /* sin soporte */ }));
+}
+
 // ======================================================================= CONFIGURACIÓN
 route('configuracion', 'Configuración', async (rest, qs) => {
   const [s, ml, sites] = await Promise.all([api('/api/settings'), api('/api/ml/status'), api('/api/ml-sites')]);
@@ -1042,6 +1434,9 @@ route('configuracion', 'Configuración', async (rest, qs) => {
         <form id="f-fee" class="form-grid">
           ${Object.entries(CH).map(([k, v]) => `<label class="field">${v.label} (%)<input type="number" step="0.1" min="0" name="fee_${k}_pct" value="${esc(s[`fee_${k}_pct`])}"></label>`).join('')}
           <label class="field">Alertar si el competidor está ≥ X% más barato<input type="number" step="0.5" min="0" name="alert_cheaper_pct" value="${esc(s.alert_cheaper_pct)}"></label>
+          <label class="field">Sugerir bajar precio a los (días)<input type="number" step="1" min="1" name="aging_warn_days" value="${esc(s.aging_warn_days)}"></label>
+          <label class="field">Sugerir liquidar a los (días)<input type="number" step="1" min="1" name="aging_clear_days" value="${esc(s.aging_clear_days)}"></label>
+          <label class="field">Margen mínimo al comprar para revender (%)<input type="number" step="1" min="0" max="90" name="target_margin_pct" value="${esc(s.target_margin_pct)}"></label>
         </form></div>
       <div><button class="btn primary" id="save-settings">Guardar configuración</button></div>
     </div>
@@ -1071,6 +1466,18 @@ route('configuracion', 'Configuración', async (rest, qs) => {
       <div class="card"><h2 style="margin-bottom:10px">Exportar datos</h2><div class="row">
         <a class="btn" href="/api/export/products.csv">Productos</a><a class="btn" href="/api/export/sales.csv">Ventas</a>
         <a class="btn" href="/api/export/customers.csv">Clientes</a><a class="btn" href="/api/export/expenses.csv">Gastos</a></div></div>
+      <div class="card"><h2 style="margin-bottom:4px">Respaldo completo</h2>
+        <p class="small muted" style="margin-top:0">Un solo archivo con todo: productos, fotos, ventas, clientes, gastos, oportunidades y tu ruta.
+          Sirve para guardar una copia o para pasar tus datos de tu computadora o celular a Vercel. No incluye tus credenciales de Mercado Libre.</p>
+        <div class="row"><button class="btn primary" id="bk-down">⇩ Descargar respaldo</button>
+          <button class="btn" id="bk-up">⇧ Restaurar respaldo</button><input type="file" id="bk-file" accept=".json,application/json" hidden></div>
+        <div id="bk-status" class="small muted" style="margin-top:8px"></div></div>
+      <div class="card"><h2 style="margin-bottom:4px">Usar como app en el celular</h2>
+        <p class="small muted" style="margin-top:0">Instala el panel en la pantalla de inicio: abre a pantalla completa, como una app.</p>
+        <button class="btn primary install-btn hidden" id="install-settings">⤓ Instalar app</button>
+        <ul class="small" style="padding-left:18px;margin-bottom:0">
+          <li><b>Android (Chrome o Brave):</b> menú ⋮ → <b>Instalar app</b> o <b>Agregar a pantalla de inicio</b>.</li>
+          <li><b>iPhone (Safari):</b> botón Compartir → <b>Agregar a inicio</b>.</li></ul></div>
     </div></div>`;
 
   const saveAll = async (...forms) => {
@@ -1084,6 +1491,13 @@ route('configuracion', 'Configuración', async (rest, qs) => {
   $('#ml-connect').addEventListener('click', e => busy(e.currentTarget, async () => {
     await saveAll('#f-ml'); const { url } = await api('/api/ml/auth-url'); location.href = url;
   }));
+  $('#bk-down').addEventListener('click', e => busy(e.currentTarget, () => downloadBackup($('#bk-status'))));
+  $('#bk-up').addEventListener('click', () => $('#bk-file').click());
+  $('#bk-file').addEventListener('change', async ev => {
+    const file = ev.target.files[0]; ev.target.value = '';
+    if (file) await restoreBackup(file, $('#bk-status'));
+  });
+  setupInstallButtons();
   if (ml.connected) {
     $('#ml-orders').addEventListener('click', e => busy(e.currentTarget, async () => {
       const r = await api('/api/ml/sync-orders?days=30', { method: 'POST' }); toast(`Pedidos: ${r.nuevas} nuevos, ${r.actualizadas} actualizados`, 'ok');

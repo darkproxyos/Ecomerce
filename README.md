@@ -47,6 +47,17 @@ cd backend && .venv/bin/python -m app.seed   # datos de ejemplo
 | **Búsquedas y novedades** | Palabras clave en Mercado Libre: rango y promedio de precios, vendedores, cambios de precio y **productos nuevos** que aparecen entre revisiones. |
 | **Configuración** | Moneda, país, % de comisión por canal, conexión con Mercado Libre, exportaciones CSV y catálogo para Meta. |
 
+**Para crecer:**
+
+| Sección | Qué hace |
+|---|---|
+| **Venta rápida** | Botón **Vendido** en cada producto: registra la venta en 2 toques, descuenta stock y marca *agotado* si ya no queda. |
+| **Rotación** | Cuenta los días que lleva publicado cada artículo. A los 14 días sugiere bajar 10%; a los 30, liquidar (−20%, nunca por debajo del costo). Muestra el dinero detenido en Inicio. Los días se configuran. |
+| **Oportunidades de compra** | Evalúa algo antes de comprarlo para revender: ganancia, margen, rendimiento y lo máximo que debes pagar. Con **La compré** se crea el producto con su costo real. |
+| **Mi ruta** | Las 6 fases del plan (de vender lo de casa a tu propia tienda) con tareas y tu fase detectada con tus números reales: capital, ventas por semana, utilidad y margen. |
+| **App en el celular** | Se instala en la pantalla de inicio (Android e iPhone) y abre aunque la señal sea mala. |
+| **Respaldo completo** | Descarga un archivo con todo (incluidas las fotos) y restáuralo en otro panel: así pasas tus datos de tu computadora o Termux a Vercel. |
+
 El planificador interno ejecuta automáticamente las revisiones pendientes cada minuto mientras el servidor esté encendido.
 
 ## Mercado Libre (API oficial)

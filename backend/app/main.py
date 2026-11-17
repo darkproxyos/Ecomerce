@@ -19,7 +19,7 @@ from .config import (
     PUBLIC_DIR, SCHEDULER_ENABLED, SCHEDULER_TICK_SECONDS, SESSION_DAYS, SESSION_SECRET,
 )
 from .database import ensure_tables, get_db
-from .routers import admin, dashboard, market, products, sales
+from .routers import admin, dashboard, market, opportunities, products, sales, tools
 from .services import market as market_service
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -146,7 +146,8 @@ def cron(request: Request, db: Session = Depends(get_db)):
     return market_service.run_due(db)
 
 
-for r in (dashboard.router, products.router, sales.router, market.router, admin.router):
+for r in (dashboard.router, products.router, sales.router, market.router, admin.router,
+          opportunities.router, tools.router):
     app.include_router(r)
 
 

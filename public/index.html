@@ -6,6 +6,11 @@
   <title>Panel de Ventas</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%232a78d6'/><path d='M8 22V12m6 10V8m6 14v-7m6 7V10' stroke='white' stroke-width='3' stroke-linecap='round'/></svg>">
   <meta name="theme-color" content="#2a78d6">
+  <link rel="manifest" href="/manifest.json">
+  <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Panel">
   <link rel="stylesheet" href="/static/styles.css">
   <script src="/static/vendor/chart.umd.min.js"></script>
 </head>
@@ -19,6 +24,9 @@
         <a href="#/ventas" data-route="ventas"><i>$</i>Ventas</a>
         <a href="#/clientes" data-route="clientes"><i>☺</i>Clientes</a>
         <a href="#/gastos" data-route="gastos"><i>−</i>Gastos</a>
+        <div class="nav-title">Crecer</div>
+        <a href="#/ruta" data-route="ruta"><i>↗</i>Mi ruta</a>
+        <a href="#/compras" data-route="compras"><i>⌖</i>Oportunidades de compra</a>
         <div class="nav-title">Inteligencia de mercado</div>
         <a href="#/competencia" data-route="competencia"><i>◎</i>Precios competencia</a>
         <a href="#/mercado" data-route="mercado"><i>⌕</i>Búsquedas y novedades</a>
@@ -26,6 +34,7 @@
         <a href="#/configuracion" data-route="configuracion"><i>⚙</i>Configuración</a>
         <a href="/juegos/digiz/" target="_blank" rel="noopener"><i>▶</i>Juego DIGIZ ↗</a>
         <a href="#" id="logout-btn" onclick="return false"><i>⎋</i>Cerrar sesión</a>
+        <button class="btn primary install-btn hidden" id="install-side" style="margin:14px 10px 0">⤓ Instalar app</button>
       </nav>
     </aside>
     <div class="main">

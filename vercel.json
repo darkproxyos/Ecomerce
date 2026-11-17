@@ -9,15 +9,35 @@
     }
   },
   "rewrites": [
-    { "source": "/api/:path*", "destination": "/api/index" }
+    {
+      "source": "/api/:path*",
+      "destination": "/api/index"
+    }
   ],
   "crons": [
-    { "path": "/api/cron", "schedule": "0 13 * * *" }
+    {
+      "path": "/api/cron",
+      "schedule": "0 13 * * *"
+    }
   ],
   "headers": [
     {
       "source": "/static/(.*)",
-      "headers": [{ "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }]
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=0, must-revalidate"
+        }
+      ]
+    },
+    {
+      "source": "/sw.js",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-cache"
+        }
+      ]
     }
   ]
 }

@@ -14,6 +14,14 @@ DEFAULTS: dict[str, str] = {
     "fee_otro_pct": "0",
     # Alertas de competencia: avisar si el competidor está X% más barato.
     "alert_cheaper_pct": "0",
+    # Rotación: días publicados para sugerir bajar precio / liquidar.
+    "aging_warn_days": "14",
+    "aging_clear_days": "30",
+    # Margen mínimo deseado al comprar para revender (oportunidades).
+    "target_margin_pct": "30",
+    # Mi ruta: capital con el que empezaste y tareas marcadas (JSON).
+    "initial_capital": "0",
+    "roadmap_done": "{}",
     # Integración Mercado Libre (OAuth)
     "ml_app_id": "",
     "ml_client_secret": "",

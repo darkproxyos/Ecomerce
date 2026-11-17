@@ -4,7 +4,7 @@ from datetime import date as Date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from .models import CHANNELS, PRODUCT_STATUSES, SALE_STATUSES
+from .models import CHANNELS, OPPORTUNITY_STATUSES, PRODUCT_STATUSES, SALE_STATUSES
 
 
 class ORM(BaseModel):
@@ -82,6 +82,10 @@ class ProductOut(ProductIn, ORM):
     margin_pct: float = 0
     low_stock: bool = False
     units_sold: int = 0
+    listed_at: datetime | None = None
+    days_listed: int | None = None
+    aging: str = ""  # "", "bajar" o "liquidar"
+    suggested_price: float | None = None
 
 
 # ------------------------------------------------------------------ Clientes
@@ -264,3 +268,73 @@ class ResultOut(ORM):
     first_seen: datetime
     last_seen: datetime
     is_new: bool = False
+
+
+# ------------------------------------------------------------------ Venta rápida
+
+class QuickSaleIn(BaseModel):
+    price: float = Field(ge=0)
+    quantity: int = Field(1, ge=1)
+    channel: str = "marketplace"
+    customer_name: str = ""
+    shipping_cost: float = Field(0, ge=0)
+    commission: float | None = None
+    status: str = "entregado"
+
+
+# ------------------------------------------------------------------ Oportunidades
+
+class OpportunityIn(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    url: str = ""
+    source: str = "marketplace"
+    asking_price: float = Field(0, ge=0)
+    offer_price: float | None = Field(None, ge=0)
+    resale_price: float = Field(0, ge=0)
+    channel: str = "marketplace"
+    fee_pct: float | None = Field(None, ge=0, le=100)
+    shipping: float = Field(0, ge=0)
+    other_costs: float = Field(0, ge=0)
+    status: str = "idea"
+    notes: str = ""
+
+    @field_validator("status")
+    @classmethod
+    def _status(cls, v: str) -> str:
+        if v not in OPPORTUNITY_STATUSES:
+            raise ValueError(f"estado inválido, usa uno de {OPPORTUNITY_STATUSES}")
+        return v
+
+    @field_validator("channel")
+    @classmethod
+    def _channel(cls, v: str) -> str:
+        if v not in CHANNELS:
+            raise ValueError(f"canal inválido, usa uno de {CHANNELS}")
+        return v
+
+
+class OpportunityCalc(BaseModel):
+    buy_price: float
+    fee_pct: float
+    fee: float
+    profit: float
+    margin_pct: float
+    roi_pct: float | None
+    max_pay: float
+    verdict: str  # "comprar", "rapido" o "no"
+
+
+class OpportunityOut(OpportunityIn, ORM):
+    id: int
+    product_id: int | None
+    created_at: datetime
+    calc: OpportunityCalc | None = None
+
+
+class BuyIn(BaseModel):
+    paid_price: float = Field(ge=0)
+    other_costs: float | None = Field(None, ge=0)
+
+
+class RoadmapTaskIn(BaseModel):
+    done: bool
